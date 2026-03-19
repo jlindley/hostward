@@ -1,0 +1,9 @@
+banner_mode = "count"
+history_retention = "31d"
+log_level = "info"
+log_retention = "31d"
+log_max_bytes = 10485760
+
+[notifications]
+enabled = true
+mode = "failure-start"

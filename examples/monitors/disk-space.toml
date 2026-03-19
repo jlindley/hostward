@@ -1,0 +1,4 @@
+type = "script"
+every = "15m"
+timeout = "10s"
+command = ["sh", "-c", "test \"$(df -Pk / | awk 'NR==2 {print 100 - $5}')\" -ge 10"]

@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.env.*
+*.local
+*.swp
+*.tmp
+.idea/
+.vscode/
+bin/
+dist/
+coverage.out
+*.coverprofile

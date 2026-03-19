@@ -1,0 +1,4 @@
+type = "deadman"
+every = "5m"
+grace = "24h"
+name = "Nightly Backup"
