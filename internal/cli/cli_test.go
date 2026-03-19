@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -40,11 +41,36 @@ exit 0
 
 	text := stdout.String()
 	assertContains(t, text, "config validation: ok")
-	assertContains(t, text, "shell init zsh: configured")
-	assertContains(t, text, "shell init bash: not detected")
+	assertContains(t, text, "shell integration: advisory only; banner and prompt wiring are optional")
+	assertContains(t, text, "shell zsh banner: advisory only: detected")
+	assertContains(t, text, "shell zsh prompt env function: advisory only: detected")
+	assertContains(t, text, "shell zsh prompt hook: advisory only: detected")
+	assertContains(t, text, "shell bash banner: advisory only: not detected")
+	assertContains(t, text, "shell bash prompt env function: advisory only: not detected")
+	assertContains(t, text, "shell bash prompt hook: advisory only: not detected")
 	assertContains(t, text, "snapshot cache: fresh")
 	assertContains(t, text, "launchd loaded: true")
 	assertContains(t, text, "notification adapter: osascript available at")
+}
+
+func TestRunDoctorReportsBannerOnlyShellSetup(t *testing.T) {
+	runner, stdout, _, paths := testRunner(t)
+
+	if err := os.WriteFile(filepath.Join(paths.Home, ".zshrc"), []byte(`if [[ -o interactive ]]; then
+  "$HOME/.local/bin/hostward" banner 2>/dev/null
+fi
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(.zshrc) error = %v", err)
+	}
+
+	if err := runner.Run([]string{"doctor"}); err != nil {
+		t.Fatalf("Run(doctor) error = %v", err)
+	}
+
+	text := stdout.String()
+	assertContains(t, text, "shell zsh banner: advisory only: detected")
+	assertContains(t, text, "shell zsh prompt env function: advisory only: not detected")
+	assertContains(t, text, "shell zsh prompt hook: advisory only: not detected")
 }
 
 func TestRunMonitorRunSucceedsWhenNotificationFails(t *testing.T) {
@@ -105,6 +131,33 @@ func TestRunShellInitPrintsSnippet(t *testing.T) {
 	assertContains(t, text, "HOSTWARD_FAILING_COUNT")
 }
 
+func TestRunMonitorsListAlignsColumns(t *testing.T) {
+	runner, stdout, _, paths := testRunner(t)
+
+	writeMonitor(t, paths.MonitorsDir, "alpha.toml", `type = "script"
+every = "1m"
+timeout = "5s"
+command = ["sh", "-c", "exit 0"]
+name = "Alpha monitor"
+`)
+	writeMonitor(t, paths.MonitorsDir, "beta-long.toml", `type = "deadman"
+every = "1m"
+grace = "24h"
+name = "Beta monitor"
+`)
+
+	if err := runner.Run([]string{"monitors", "list"}); err != nil {
+		t.Fatalf("Run(monitors list) error = %v", err)
+	}
+
+	text := stdout.String()
+	if strings.Contains(text, "\t") {
+		t.Fatalf("monitors list output still contains tabs:\n%s", text)
+	}
+	assertMatches(t, text, `(?m)^alpha {2,}script {2,}unknown {2,}Alpha monitor$`)
+	assertMatches(t, text, `(?m)^beta-long {2,}deadman {2,}unknown {2,}Beta monitor$`)
+}
+
 func testRunner(t *testing.T) (*Runner, *bytes.Buffer, *bytes.Buffer, config.Paths) {
 	t.Helper()
 
@@ -162,5 +215,13 @@ func assertContains(t *testing.T, text, want string) {
 
 	if !strings.Contains(text, want) {
 		t.Fatalf("output missing %q:\n%s", want, text)
+	}
+}
+
+func assertMatches(t *testing.T, text, pattern string) {
+	t.Helper()
+
+	if !regexp.MustCompile(pattern).MatchString(text) {
+		t.Fatalf("output did not match %q:\n%s", pattern, text)
 	}
 }

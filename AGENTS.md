@@ -7,6 +7,15 @@
 - Run `go test ./...` before closing work.
 - Main CLI entrypoint is `cmd/hostward`.
 
+## CLI Output
+
+- Format user-facing CLI output for actual terminals, not idealized tab stops.
+- Do not dump raw tab-separated fields and assume they will line up.
+- For columnar output, prefer Go's `text/tabwriter` or another deterministic formatter.
+- For single-record detail views, prefer one field per line as `label: value`.
+- Keep output scan-friendly: stable ordering, consistent spacing, and no wrapped garbage when one field gets long.
+- If output starts looking table-shaped, treat formatting as part of the feature, not polish to skip when tired.
+
 ## Product Invariants
 
 - Hostward is local-only and single-user for one Mac.

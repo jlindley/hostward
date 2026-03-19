@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"hostward/internal/build"
@@ -729,14 +730,15 @@ func (r *Runner) runMonitors(args []string) error {
 		return err
 	}
 
+	writer := tabwriter.NewWriter(r.stdout, 0, 0, 2, ' ', 0)
 	for _, definition := range bundle.Monitors {
 		monitorSnapshot, _ := findMonitorSnapshot(snapshot.Monitors, definition.ID)
-		if _, err := fmt.Fprintf(r.stdout, "%s\t%s\t%s\t%s\n", definition.ID, definition.Type, monitorSnapshot.Status, definition.DisplayName()); err != nil {
+		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", definition.ID, definition.Type, monitorSnapshot.Status, definition.DisplayName()); err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return writer.Flush()
 }
 
 func (r *Runner) runPoke(args []string) error {

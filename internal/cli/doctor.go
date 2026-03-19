@@ -20,6 +20,11 @@ type doctorLine struct {
 	value string
 }
 
+type shellCheck struct {
+	label      string
+	configured bool
+}
+
 func buildDoctorReport(paths config.Paths, now time.Time) (string, error) {
 	lines := []doctorLine{
 		{label: "config", value: fmt.Sprintf("%s (%s)", paths.GlobalConfigPath, presence(paths.GlobalConfigPath))},
@@ -47,9 +52,10 @@ func buildDoctorReport(paths config.Paths, now time.Time) (string, error) {
 		doctorLine{label: "monitors loaded", value: fmt.Sprintf("%d", len(bundle.Monitors))},
 		doctorLine{label: "notifications enabled", value: fmt.Sprintf("%t", bundle.Global.Notifications.Enabled)},
 		doctorLine{label: "notification mode", value: bundle.Global.Notifications.Mode},
-		doctorLine{label: "shell init zsh", value: shellInitStatus(filepath.Join(paths.Home, ".zshrc"), "zsh")},
-		doctorLine{label: "shell init bash", value: shellInitStatus(filepath.Join(paths.Home, ".bashrc"), "bash")},
+		doctorLine{label: "shell integration", value: "advisory only; banner and prompt wiring are optional"},
 	)
+	lines = append(lines, shellInitLines(filepath.Join(paths.Home, ".zshrc"), "zsh")...)
+	lines = append(lines, shellInitLines(filepath.Join(paths.Home, ".bashrc"), "bash")...)
 
 	lines = append(lines, doctorLine{label: "snapshot cache", value: snapshotStatus(paths.CurrentStatePath, now)})
 
@@ -81,34 +87,85 @@ func formatDoctorReport(lines []doctorLine) string {
 	return builder.String()
 }
 
-func shellInitStatus(path, target string) string {
+func shellInitLines(path, target string) []doctorLine {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return fmt.Sprintf("not detected (%s missing)", path)
+		return missingShellInitLines(path, target)
 	}
 	if err != nil {
-		return fmt.Sprintf("unreadable (%s)", path)
-	}
-
-	text := string(data)
-	markers := []string{
-		fmt.Sprintf("hostward shell-init %s", target),
-		"HOSTWARD_FAILING_COUNT",
-	}
-	switch target {
-	case "zsh":
-		markers = append(markers, "__hostward_precmd")
-	case "bash":
-		markers = append(markers, "__hostward_prompt_command")
-	}
-
-	for _, marker := range markers {
-		if strings.Contains(text, marker) {
-			return fmt.Sprintf("configured in %s", path)
+		return []doctorLine{
+			{label: shellCheckLabel(target, "banner"), value: fmt.Sprintf("advisory only: unreadable (%s)", path)},
+			{label: shellCheckLabel(target, "prompt env function"), value: fmt.Sprintf("advisory only: unreadable (%s)", path)},
+			{label: shellCheckLabel(target, "prompt hook"), value: fmt.Sprintf("advisory only: unreadable (%s)", path)},
 		}
 	}
 
-	return fmt.Sprintf("not detected in %s", path)
+	text := string(data)
+	checks := shellChecks(text, target)
+	lines := make([]doctorLine, 0, len(checks))
+	for _, check := range checks {
+		value := fmt.Sprintf("advisory only: not detected in %s", path)
+		if check.configured {
+			value = fmt.Sprintf("advisory only: detected in %s", path)
+		}
+		lines = append(lines, doctorLine{
+			label: shellCheckLabel(target, check.label),
+			value: value,
+		})
+	}
+	return lines
+}
+
+func missingShellInitLines(path, target string) []doctorLine {
+	return []doctorLine{
+		{label: shellCheckLabel(target, "banner"), value: fmt.Sprintf("advisory only: not detected (%s missing)", path)},
+		{label: shellCheckLabel(target, "prompt env function"), value: fmt.Sprintf("advisory only: not detected (%s missing)", path)},
+		{label: shellCheckLabel(target, "prompt hook"), value: fmt.Sprintf("advisory only: not detected (%s missing)", path)},
+	}
+}
+
+func shellChecks(text, target string) []shellCheck {
+	if containsAll(text, "shell-init "+target, "hostward") {
+		return []shellCheck{
+			{label: "banner", configured: true},
+			{label: "prompt env function", configured: true},
+			{label: "prompt hook", configured: true},
+		}
+	}
+
+	switch target {
+	case "zsh":
+		return []shellCheck{
+			{label: "banner", configured: containsAll(text, "banner", "hostward")},
+			{label: "prompt env function", configured: strings.Contains(text, "__hostward_precmd") || strings.Contains(text, "HOSTWARD_FAILING_COUNT")},
+			{label: "prompt hook", configured: strings.Contains(text, "precmd_functions") && strings.Contains(text, "__hostward_precmd")},
+		}
+	case "bash":
+		return []shellCheck{
+			{label: "banner", configured: containsAll(text, "banner", "hostward")},
+			{label: "prompt env function", configured: strings.Contains(text, "__hostward_prompt_command") || strings.Contains(text, "HOSTWARD_FAILING_COUNT")},
+			{label: "prompt hook", configured: strings.Contains(text, "PROMPT_COMMAND") && strings.Contains(text, "__hostward_prompt_command")},
+		}
+	default:
+		return []shellCheck{
+			{label: "banner", configured: false},
+			{label: "prompt env function", configured: false},
+			{label: "prompt hook", configured: false},
+		}
+	}
+}
+
+func containsAll(text string, patterns ...string) bool {
+	for _, pattern := range patterns {
+		if !strings.Contains(text, pattern) {
+			return false
+		}
+	}
+	return true
+}
+
+func shellCheckLabel(target, component string) string {
+	return fmt.Sprintf("shell %s %s", target, component)
 }
 
 func snapshotStatus(path string, now time.Time) string {
